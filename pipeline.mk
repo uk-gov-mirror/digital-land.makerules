@@ -294,7 +294,17 @@ else
 	aws s3 cp s3://$(COLLECTION_DATASET_BUCKET_NAME)/config/$(PIPELINE_DIR)$(COLLECTION_NAME)/$(notdir $@) $@ --no-progress
 endif
 
-config:: $(PIPELINE_CONFIG_FILES)
+# Optional config: lookup-rule.csv exists only for some collections (e.g. title-boundary),
+# so a missing file is skipped rather than failing the build. 
+$(PIPELINE_DIR)lookup-rule.csv:
+	@mkdir -p $(PIPELINE_DIR)
+ifeq ($(COLLECTION_DATASET_BUCKET_NAME),)
+	curl -qsL '$(PIPELINE_CONFIG_URL)$(notdir $@)?version=$(shell date +%s)' -o $@ --fail || { rm -f $@; echo "optional $(notdir $@) not found at source — skipping"; }
+else
+	if aws s3 ls 's3://$(COLLECTION_DATASET_BUCKET_NAME)/config/$(PIPELINE_DIR)$(COLLECTION_NAME)/$(notdir $@)' >/dev/null 2>&1; then aws s3 cp 's3://$(COLLECTION_DATASET_BUCKET_NAME)/config/$(PIPELINE_DIR)$(COLLECTION_NAME)/$(notdir $@)' $@ --no-progress; else echo "optional $(notdir $@) not present for $(COLLECTION_NAME) — skipping"; fi
+endif
+
+config:: $(PIPELINE_CONFIG_FILES) | $(PIPELINE_DIR)lookup-rule.csv
 ifeq ($(PIPELINE_CONFIG_FILES), .dummy)
 	echo "pipeline_config_files are dummy not making config.sqlite" 
 else
@@ -304,7 +314,7 @@ else
 endif
 
 clean::
-	rm -f $(PIPELINE_CONFIG_FILES)
+	rm -f $(PIPELINE_CONFIG_FILES) $(PIPELINE_DIR)lookup-rule.csv
 
 state.json:
 	digital-land save-state --specification-dir=specification --collection-dir=$(COLLECTION_DIR) --pipeline-dir=$(PIPELINE_DIR) --resource-dir=$(COLLECTION_DIR)resource/ --incremental-loading-override=$(INCREMENTAL_LOADING_OVERRIDE) --output-path=state.json
